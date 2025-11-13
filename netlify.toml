@@ -1,8 +1,13 @@
 [build]
-  command = "npm install"
+  command = "npm ci"
   functions = "functions"
+  publish = "."
 
 [[redirects]]
   from = "/*"
   to = "/.netlify/functions/server"
   status = 200
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["node_modules/**"]
