@@ -120,6 +120,135 @@ Please answer the question based on the provided expense data.`;
   }
 });
 
+// Add expense via natural language endpoint
+app.post('/add-expense', async (req, res) => {
+  try {
+    const { input, recentExpenses, availableCategories } = req.body;
+
+    // Validate input
+    if (!input || !Array.isArray(availableCategories)) {
+      return res.status(400).json({
+        error: 'Invalid request. Required: input (string), availableCategories (array)',
+      });
+    }
+
+    if (!OPENROUTER_API_KEY) {
+      return res.status(500).json({
+        error: 'OpenRouter API key not configured',
+      });
+    }
+
+    // Format recent expenses for context
+    const recentExpensesSummary = (recentExpenses || [])
+      .slice(0, 10)
+      .map(
+        (e) =>
+          `- ${e.title}: ₹${e.amount} (${e.category})`
+      )
+      .join('\n');
+
+    // Create prompt for expense parsing
+    const systemPrompt = `You are an AI assistant that helps users add expenses. Parse natural language input and extract expense details.
+Return a JSON object with: title, amount, category, notes, date.
+- title: Brief description of the expense
+- amount: Numeric amount in rupees
+- category: One of the available categories provided
+- notes: Optional additional notes
+- date: ISO date string (YYYY-MM-DD)
+
+If the user's input is not about adding an expense, return null for expenseData.`;
+
+    const userPrompt = `Available categories: ${availableCategories.join(', ')}
+
+Recent expenses for context:
+${recentExpensesSummary || 'No recent expenses'}
+
+User input: "${input}"
+
+Extract the expense details and return as JSON. If this is not an expense addition request, set expenseData to null.
+Return format:
+{
+  "answer": "Confirmation message",
+  "expenseData": {
+    "title": "...",
+    "amount": ...,
+    "category": "...",
+    "notes": "...",
+    "date": "YYYY-MM-DD"
+  }
+}`;
+
+    // Call OpenRouter API
+    const response = await axios.post(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
+          {
+            role: 'user',
+            content: userPrompt,
+          },
+        ],
+        temperature: 0.3, // Lower temperature for more consistent parsing
+        max_tokens: 300,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          'HTTP-Referer': 'https://expense-tacker-backend.netlify.app',
+          'X-Title': 'Expense Tracker',
+        },
+      }
+    );
+
+    let result;
+    try {
+      const content = response.data.choices[0].message.content;
+      result = JSON.parse(content);
+    } catch (parseError) {
+      // If JSON parsing fails, return error
+      return res.status(400).json({
+        answer: 'Could not parse expense details. Please try again with more specific information.',
+        expenseData: null,
+      });
+    }
+
+    // Validate and normalize the result
+    if (result.expenseData) {
+      // Ensure amount is a number
+      result.expenseData.amount = parseFloat(result.expenseData.amount) || 0;
+      
+      // Ensure date is valid
+      if (!result.expenseData.date) {
+        result.expenseData.date = new Date().toISOString().split('T')[0];
+      }
+
+      // Ensure category exists in available categories (case-insensitive match)
+      const matchedCategory = availableCategories.find(
+        (cat) => cat.toLowerCase() === result.expenseData.category.toLowerCase()
+      );
+      if (matchedCategory) {
+        result.expenseData.category = matchedCategory;
+      }
+    }
+
+    // Return response
+    res.json(result);
+  } catch (error) {
+    console.error('Error:', error.response?.data || error.message);
+    res.status(500).json({
+      error: 'Failed to process expense',
+      details: error.message,
+      answer: 'Sorry, I could not process your expense request. Please try again.',
+      expenseData: null,
+    });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
