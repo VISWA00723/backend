@@ -1,16 +1,14 @@
 const express = require('express');
-const router = express.Router();
+const router = require('./router'); // Assuming the router is in the same directory
 
-router.post('/analyze', async (req, res) => {
-    // Change the model from 'mistralai/devstral-2512:free' to 'nvidia/nemotron-3-super-120b-a12b:free'
-    const model = 'nvidia/nemotron-3-super-120b-a12b:free';
-    // Your existing analyze logic
-});
+const app = express();
 
-router.post('/add-expense', async (req, res) => {
-    // Change the model from 'mistralai/devstral-2512:free' to 'nvidia/nemotron-3-super-120b-a12b:free'
-    const model = 'nvidia/nemotron-3-super-120b-a12b:free';
-    // Your existing add expense logic
-});
+app.use('/api', router);
 
-module.exports = router;
+const awsLambdaHandler = async (event, context) => {
+    // You may need to adjust middleware or request parsing here
+    // to suit your specific needs, especially in a Lambda environment
+    return await app(event, context);
+};
+
+exports.handler = awsLambdaHandler;
